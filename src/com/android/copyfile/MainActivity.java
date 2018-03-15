@@ -1,9 +1,13 @@
 package com.android.copyfile;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -22,6 +26,7 @@ public class MainActivity extends Activity
     private ProgressBar mProgressMain;
     private ProgressBar mProgressSub;
     private Thread      mThread;
+    private boolean     mExitCopy;
 
     /** Called when the activity is first created. */
     @Override
@@ -35,14 +40,12 @@ public class MainActivity extends Activity
         mTxtSub       = (TextView)findViewById(R.id.txt_sub    );
         mProgressMain = (ProgressBar)findViewById(R.id.bar_main);
         mProgressSub  = (ProgressBar)findViewById(R.id.bar_sub );
-        mTxtStatus.setText("mTxtStatus");
-        mTxtMain  .setText("mTxtMain"  );
-        mTxtSub   .setText("mTxtSub"   );
 
-        mThread = new Thread() {
+        mExitCopy = false;
+        mThread   = new Thread() {
             @Override
             public void run() {
-                doCopyFile(mHandler);
+                doCopyFile();
                 mThread = null;
             }
         };
@@ -51,7 +54,10 @@ public class MainActivity extends Activity
 
     @Override
     public void onDestroy() {
-        Log.d(TAG, "onDestroy");
+        Log.d(TAG, "++onDestroy");
+        mExitCopy = true;
+        try { mThread.join(); } catch (Exception e) { e.printStackTrace(); }
+        Log.d(TAG, "--onDestroy");
         super.onDestroy();
     }
 
@@ -67,7 +73,29 @@ public class MainActivity extends Activity
         super.onPause();
     }
 
+    @Override
+    public void onBackPressed() {
+        if (mThread == null) {
+            super.onBackPressed();
+        } else {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(getString(R.string.notice));
+            builder.setIcon(R.drawable.ic_launcher);
+            builder.setMessage(getString(R.string.wait_copy_done));
+            builder.setPositiveButton(
+                getString(R.string.confirm),
+                new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {}
+                }
+            );
+            builder.create();
+            builder.show();
+        }
+    }
+
     private static final String COPYFILE_CONFIG_PATH = "/mnt/extsd/copyfile/config.ini";
+//  private static final String COPYFILE_CONFIG_PATH = "/sdcard/config.ini";
     private ArrayList<CopyTask> parseCopyFileConfig(String path) {
         ArrayList<CopyTask> tasklist = new ArrayList<CopyTask>();
         FileInputStream is     = null;
@@ -145,8 +173,10 @@ public class MainActivity extends Activity
         return -1;
     }
 
+    private long mLastReportTime = 0;
+    private long mCurBytesCopyed = 0;
     private boolean copyFile(String src, String dst) {
-        Log.d(TAG, "copyfile: " + src + " -> " + dst);
+//      Log.d(TAG, "copyfile: " + src + " -> " + dst);
         File fsrc = new File(src);
         File fdst = new File(dst);
         InputStream  is = null;
@@ -156,10 +186,18 @@ public class MainActivity extends Activity
         try {
             is = new FileInputStream (fsrc);
             os = new FileOutputStream(fdst);
-            int bytesRead;
-            while ((bytesRead = is.read(buf)) > 0) {
+            int bytesRead = 0;
+            int bytesCopy = 0;
+            while (!mExitCopy && (bytesRead = is.read(buf)) > 0) {
                 os.write(buf, 0, bytesRead);
+                bytesCopy += bytesRead;
+                if (SystemClock.uptimeMillis() - mLastReportTime > 100) {
+                    mLastReportTime = SystemClock.uptimeMillis();
+                    sendMessage(CopyTask.MSG_BYTES_COPY, bytesCopy, 0, dst);
+                    bytesCopy = 0;
+                }
             }
+            sendMessage(CopyTask.MSG_BYTES_COPY, bytesCopy, 0, dst);
             ret = true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -169,11 +207,12 @@ public class MainActivity extends Activity
                 if (os != null) os.close();
             } catch (Exception e) {}
         }
+        if (!ret) sendMessage(CopyTask.MSG_FILE_FAILED, 0, 0, dst);
         return ret;
     }
 
     private boolean copyDir(String src, String dst) {
-        Log.d(TAG, "copydir: " + src + " -> " + dst);
+//      Log.d(TAG, "copydir: " + src + " -> " + dst);
         File fsrc   = new File(src);
         File fdst   = new File(dst);
         boolean ret = false;
@@ -203,26 +242,43 @@ public class MainActivity extends Activity
         return false;
     }
 
-    private boolean doCopyFile(Handler handler) {
-        handler.sendEmptyMessage(CopyTask.MSG_COPY_START);
+
+    private void sendMessage(int what, int arg1, int arg2, Object obj) {
+        Message msg = new Message();
+        msg.what = what;
+        msg.arg1 = arg1;
+        msg.arg2 = arg2;
+        msg.obj  = obj;
+        mHandler.sendMessage(msg);
+    }
+
+    private boolean doCopyFile() {
+        boolean ret = false;
+        sendMessage(CopyTask.MSG_COPY_START, 0, 0, null);
         ArrayList<CopyTask> list = parseCopyFileConfig(COPYFILE_CONFIG_PATH);
+        sendMessage(CopyTask.MSG_TASK_TOTAL, list.size(), 0, null);
         for (CopyTask task : list) {
+            sendMessage(CopyTask.MSG_TASK_START, 0, 0, task);
             switch (task.type) {
             case CopyTask.COPY_TASK_FILE:
-                copyFile(task.src, task.dst);
+                sendMessage(CopyTask.MSG_FILE_SIZE, 0, 0, new Long(getFileSize(task.src)));
+                ret = copyFile(task.src, task.dst);
                 break;
             case CopyTask.COPY_TASK_DIR:
-                copyDir(task.src, task.dst);
+                sendMessage(CopyTask.MSG_DIR_SIZE , 0, 0, new Long(getDirSize(task.src)));
+                ret = copyDir(task.src, task.dst);
                 break;
             case CopyTask.COPY_TASK_UNZIP:
-                unzipFile(task.src, task.dst);
+                ret = unzipFile(task.src, task.dst);
                 break;
             case CopyTask.COPY_TASK_APK:
-                installApk(task.src);
+                ret = installApk(task.src);
                 break;
             }
+            sendMessage(ret ? CopyTask.MSG_TASK_DONE : CopyTask.MSG_TASK_FAILED, 0, 0, task);
+            if (mExitCopy || !ret) break;
         }
-        handler.sendEmptyMessage(CopyTask.MSG_COPY_DONE);
+        sendMessage(ret ? CopyTask.MSG_COPY_DONE : CopyTask.MSG_COPY_FAILED, 0, 0, null);
         return true;
     }
 
@@ -235,9 +291,50 @@ public class MainActivity extends Activity
                 break;
             case CopyTask.MSG_COPY_DONE:
                 mTxtStatus.setText(getString(R.string.copy_done));
+                mTxtStatus.setTextColor(Color.rgb(0, 255, 0));
                 break;
             case CopyTask.MSG_COPY_FAILED:
                 mTxtStatus.setText(getString(R.string.copy_failed));
+                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_TASK_TOTAL:
+                mProgressMain.setMax(msg.arg1);
+                break;
+            case CopyTask.MSG_TASK_START: {
+                    CopyTask task = (CopyTask)msg.obj;
+                    String   text = "";
+                    switch (task.type) {
+                    case CopyTask.COPY_TASK_FILE:
+                        text = getString(R.string.copy_file) + task.src + " -> " + task.dst;
+                        break;
+                    case CopyTask.COPY_TASK_DIR:
+                        text = getString(R.string.copy_dir ) + task.src + " -> " + task.dst;
+                        break;
+                    }
+                    mTxtMain.setText(text);
+                }
+                break;
+            case CopyTask.MSG_TASK_DONE:
+                mProgressMain.setProgress(mProgressMain.getProgress() + 1);
+                break;
+            case CopyTask.MSG_TASK_FAILED:
+                mTxtMain.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_BYTES_COPY:
+                mCurBytesCopyed += msg.arg1;
+                mProgressSub.setProgress((int)(mProgressSub.getProgress() + mCurBytesCopyed / 1024));
+                mTxtSub.setText(getString(R.string.current_file) + (String)msg.obj);
+                break;
+            case CopyTask.MSG_FILE_SIZE:
+            case CopyTask.MSG_DIR_SIZE : {
+                    Long size = (Long)msg.obj;
+                    mProgressSub.setMax((int)(size / 1024));
+                    mProgressSub.setProgress(0);
+                    mCurBytesCopyed = 0;
+                }
+                break;
+            case CopyTask.MSG_FILE_FAILED:
+                mTxtSub.setTextColor(Color.rgb(255, 0, 0));
                 break;
             }
         }
@@ -248,21 +345,24 @@ class CopyTask {
     public static final int MSG_COPY_START    = 0;
     public static final int MSG_COPY_DONE     = 1;
     public static final int MSG_COPY_FAILED   = 2;
-    public static final int MSG_MAIN_PROGRESS = 3;
-    public static final int MSG_SUB_PROGRESS  = 4;
-    public static final int MSG_TOTAL_TASKS   = 5;
-    public static final int MSG_FILE_SIZE     = 6;
-    public static final int MSG_DIR_SIZE      = 7;
-    public static final int MSG_APK_NUM       = 8;
+    public static final int MSG_TASK_TOTAL    = 3;
+    public static final int MSG_TASK_START    = 4;
+    public static final int MSG_TASK_DONE     = 5;
+    public static final int MSG_TASK_FAILED   = 6;
+    public static final int MSG_FILE_SIZE     = 7;
+    public static final int MSG_DIR_SIZE      = 8;
+    public static final int MSG_BYTES_COPY    = 9;
+    public static final int MSG_FILE_FAILED   = 10;
 
     public static final int COPY_TASK_FILE    = 0;
     public static final int COPY_TASK_DIR     = 1;
     public static final int COPY_TASK_UNZIP   = 2;
     public static final int COPY_TASK_APK     = 3;
 
-    public int   type;
-    public String src;
-    public String dst;
+    public int      type;
+    public String    src;
+    public String    dst;
+    public long checksum;
 }
 
 

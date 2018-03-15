@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">拷贝工具</string>
+    <string name="copy_start">正在执行拷贝...</string>
+    <string name="copy_done">拷贝成功！</string>
+    <string name="copy_failed">拷贝失败！</string>
+    <string name="copy_file">拷贝文件：</string>
+    <string name="copy_dir">拷贝目录：</string>
+    <string name="current_file">当前文件：</string>
+    <string name="notice">警告</string>
+    <string name="wait_copy_done">请等待拷贝完成，再退出程序！</string>
+    <string name="confirm">好的，我知道了！</string>
+</resources>
