@@ -131,6 +131,8 @@ public class MainActivity extends Activity
                             item.src = aa[1];
                         } else if (aa[0].equals("dst")) {
                             item.dst = aa[1];
+                        } else if (aa[0].equals("checksum")) {
+                            item.checksum = Long.parseLong(aa[1]);
                         }
                     }
                 }
@@ -260,13 +262,35 @@ public class MainActivity extends Activity
         for (CopyTask task : list) {
             sendMessage(CopyTask.MSG_TASK_START, 0, 0, task);
             switch (task.type) {
-            case CopyTask.COPY_TASK_FILE:
-                sendMessage(CopyTask.MSG_FILE_SIZE, 0, 0, new Long(getFileSize(task.src)));
-                ret = copyFile(task.src, task.dst);
+            case CopyTask.COPY_TASK_FILE: {
+                    long filesize = getFileSize(task.src);
+                    if (task.checksum != 0 && task.checksum != filesize) {
+                        sendMessage(CopyTask.MSG_FILE_SRC_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + filesize + ")");
+                        return false;
+                    } else {
+                        sendMessage(CopyTask.MSG_FILE_SIZE, 0, 0, new Long(filesize));
+                    }
+                    ret = copyFile(task.src, task.dst);
+                    if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
+                        sendMessage(CopyTask.MSG_FILE_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
+                        return false;
+                    }
+                }
                 break;
-            case CopyTask.COPY_TASK_DIR:
-                sendMessage(CopyTask.MSG_DIR_SIZE , 0, 0, new Long(getDirSize(task.src)));
-                ret = copyDir(task.src, task.dst);
+            case CopyTask.COPY_TASK_DIR: {
+                    long dirsize = getDirSize(task.src);
+                    if (task.checksum != 0 && task.checksum != dirsize) {
+                        sendMessage(CopyTask.MSG_DIR_SRC_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + dirsize + ")");
+                        return false;
+                    } else {
+                        sendMessage(CopyTask.MSG_DIR_SIZE, 0, 0, new Long(dirsize));
+                    }
+                    ret = copyDir(task.src, task.dst);
+                    if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
+                        sendMessage(CopyTask.MSG_DIR_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
+                        return false;
+                    }
+                }
                 break;
             case CopyTask.COPY_TASK_UNZIP:
                 ret = unzipFile(task.src, task.dst);
@@ -279,7 +303,7 @@ public class MainActivity extends Activity
             if (mExitCopy || !ret) break;
         }
         sendMessage(ret ? CopyTask.MSG_COPY_DONE : CopyTask.MSG_COPY_FAILED, 0, 0, null);
-        return true;
+        return ret;
     }
 
     private Handler mHandler = new Handler() {
@@ -326,7 +350,7 @@ public class MainActivity extends Activity
                 mTxtSub.setText(getString(R.string.current_file) + (String)msg.obj);
                 break;
             case CopyTask.MSG_FILE_SIZE:
-            case CopyTask.MSG_DIR_SIZE : {
+            case CopyTask.MSG_DIR_SIZE: {
                     Long size = (Long)msg.obj;
                     mProgressSub.setMax((int)(size / 1024));
                     mProgressSub.setProgress(0);
@@ -335,6 +359,22 @@ public class MainActivity extends Activity
                 break;
             case CopyTask.MSG_FILE_FAILED:
                 mTxtSub.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_FILE_SRC_CHECKSUM_FAILED:
+                mTxtStatus.setText(getString(R.string.file_src_checksum_failed) + " " + (String)msg.obj);
+                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_FILE_DST_CHECKSUM_FAILED:
+                mTxtStatus.setText(getString(R.string.file_dst_checksum_failed) + " " + (String)msg.obj);
+                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_DIR_SRC_CHECKSUM_FAILED:
+                mTxtStatus.setText(getString(R.string.dir_src_checksum_failed) + " " + (String)msg.obj);
+                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                break;
+            case CopyTask.MSG_DIR_DST_CHECKSUM_FAILED:
+                mTxtStatus.setText(getString(R.string.dir_dst_checksum_failed) + " " + (String)msg.obj);
+                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
                 break;
             }
         }
@@ -353,6 +393,10 @@ class CopyTask {
     public static final int MSG_DIR_SIZE      = 8;
     public static final int MSG_BYTES_COPY    = 9;
     public static final int MSG_FILE_FAILED   = 10;
+    public static final int MSG_FILE_SRC_CHECKSUM_FAILED = 11;
+    public static final int MSG_FILE_DST_CHECKSUM_FAILED = 12;
+    public static final int MSG_DIR_SRC_CHECKSUM_FAILED  = 13;
+    public static final int MSG_DIR_DST_CHECKSUM_FAILED  = 14;
 
     public static final int COPY_TASK_FILE    = 0;
     public static final int COPY_TASK_DIR     = 1;

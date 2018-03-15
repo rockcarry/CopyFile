@@ -10,4 +10,8 @@
     <string name="notice">notice</string>
     <string name="wait_copy_done">please wait copy done !</string>
     <string name="confirm">confirm</string>
+    <string name="file_src_checksum_failed">copy file src size check failed !</string>
+    <string name="file_dst_checksum_failed">copy file dst size check failed !</string>
+    <string name="dir_src_checksum_failed">copy dir src size check failed !</string>
+    <string name="dir_dst_checksum_failed">copy dir dst size check failed !</string>
 </resources>

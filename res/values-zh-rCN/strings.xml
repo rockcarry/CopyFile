@@ -10,4 +10,8 @@
     <string name="notice">警告</string>
     <string name="wait_copy_done">请等待拷贝完成，再退出程序！</string>
     <string name="confirm">好的，我知道了！</string>
+    <string name="file_src_checksum_failed">拷贝文件时源文件大小检验失败！</string>
+    <string name="file_dst_checksum_failed">拷贝文件时目的文件大小检验失败！</string>
+    <string name="dir_src_checksum_failed">拷贝目录时源目录大小检验失败！</string>
+    <string name="dir_dst_checksum_failed">拷贝目录时目的目录大小检验失败！</string>
 </resources>
