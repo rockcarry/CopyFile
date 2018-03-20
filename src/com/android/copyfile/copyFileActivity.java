@@ -2,6 +2,7 @@ package com.android.copyfile;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.View;
 import android.widget.ProgressBar;
@@ -23,30 +25,37 @@ import android.util.Log;
 import java.io.*;
 import java.util.*;
 
-public class MainActivity extends Activity
+public class copyFileActivity extends Activity
 {
     private static final String TAG = "CopyFile";
 
-    private TextView    mTxtStatus;
-    private TextView    mTxtMain;
-    private TextView    mTxtSub;
-    private ProgressBar mProgressMain;
-    private ProgressBar mProgressSub;
-    private Thread      mThread;
-    private boolean     mExitCopy;
+    private TextView       mTxtStatus;
+    private TextView       mTxtMain;
+    private TextView       mTxtSub;
+    private ProgressBar    mProgressMain;
+    private ProgressBar    mProgressSub;
+    private Thread         mThread;
+    private boolean        mExitCopy;
+    private PowerManager   mPowerManager;
+    private PackageManager mPackageManager;
+    private PowerManager.WakeLock mWakeLock;
 
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
         Log.d(TAG, "onCreate");
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.main);
+        setContentView(R.layout.copyfile);
 
         mTxtStatus    = (TextView)findViewById(R.id.txt_status );
         mTxtMain      = (TextView)findViewById(R.id.txt_main   );
         mTxtSub       = (TextView)findViewById(R.id.txt_sub    );
         mProgressMain = (ProgressBar)findViewById(R.id.bar_main);
         mProgressSub  = (ProgressBar)findViewById(R.id.bar_sub );
+
+        mPowerManager = (PowerManager)getSystemService(Context.POWER_SERVICE);
+        mWakeLock     = mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
+        mWakeLock.setReferenceCounted(false);
 
         mPackageManager  = getPackageManager();
         mInstallObserver = new PackageInstallObserver(mHandler);
@@ -55,8 +64,10 @@ public class MainActivity extends Activity
         mThread   = new Thread() {
             @Override
             public void run() {
+                mWakeLock.acquire();
                 doCopyFile();
                 mThread = null;
+                mWakeLock.release();
             }
         };
         mThread.start();
@@ -259,7 +270,6 @@ public class MainActivity extends Activity
         return false;
     }
 
-    private PackageManager         mPackageManager  = null;
     private PackageInstallObserver mInstallObserver = null;
     private ArrayList<String>      mApkFileList     = new ArrayList<String>();
     private final Object           mApkInstallEvent = new Object();
