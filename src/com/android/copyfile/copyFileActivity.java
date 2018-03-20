@@ -316,10 +316,12 @@ public class copyFileActivity extends Activity
         }
 
         sendMessage(CopyTask.MSG_APK_INSTALL_RUNNING, 0, 0, packageName);
-        mPackageManager.installPackage(packageUri, mInstallObserver, PackageManager.INSTALL_REPLACE_EXISTING, packageName);
-        synchronized (mApkInstallEvent) {
-            mApkInstallResult = false;
-            try { mApkInstallEvent.wait(); } catch (Exception e) { e.printStackTrace(); }
+        if (!packageName.equals("com.android.copyfile")) { // to avoid kill self
+            mPackageManager.installPackage(packageUri, mInstallObserver, PackageManager.INSTALL_REPLACE_EXISTING, packageName);
+            synchronized (mApkInstallEvent) {
+                mApkInstallResult = false;
+                try { mApkInstallEvent.wait(); } catch (Exception e) { e.printStackTrace(); }
+            }
         }
         sendMessage(mApkInstallResult ? CopyTask.MSG_APK_INSTALL_SUCCESSED : CopyTask.MSG_APK_INSTALL_FAILED, 0, 0, packageName);
         return mApkInstallResult;
@@ -442,7 +444,7 @@ public class copyFileActivity extends Activity
                 break;
             case CopyTask.MSG_BYTES_COPY:
                 mCurBytesCopyed += msg.arg1;
-                mProgressSub.setProgress((int)(mProgressSub.getProgress() + mCurBytesCopyed / 1024));
+                mProgressSub.setProgress((int)(mCurBytesCopyed / 1024));
                 mTxtSub.setText(getString(R.string.current_file) + (String)msg.obj);
                 break;
             case CopyTask.MSG_FILE_SIZE:
