@@ -3,7 +3,14 @@ package com.android.copyfile;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageParser;
+import android.content.pm.IPackageInstallObserver;
 import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -34,12 +41,15 @@ public class MainActivity extends Activity
         Log.d(TAG, "onCreate");
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
-        
+
         mTxtStatus    = (TextView)findViewById(R.id.txt_status );
         mTxtMain      = (TextView)findViewById(R.id.txt_main   );
         mTxtSub       = (TextView)findViewById(R.id.txt_sub    );
         mProgressMain = (ProgressBar)findViewById(R.id.bar_main);
         mProgressSub  = (ProgressBar)findViewById(R.id.bar_sub );
+
+        mPackageManager  = getPackageManager();
+        mInstallObserver = new PackageInstallObserver(mHandler);
 
         mExitCopy = false;
         mThread   = new Thread() {
@@ -56,6 +66,9 @@ public class MainActivity extends Activity
     public void onDestroy() {
         Log.d(TAG, "++onDestroy");
         mExitCopy = true;
+        synchronized (mApkInstallEvent) {
+            mApkInstallEvent.notifyAll();
+        }
         try { mThread.join(); } catch (Exception e) { e.printStackTrace(); }
         Log.d(TAG, "--onDestroy");
         super.onDestroy();
@@ -175,6 +188,12 @@ public class MainActivity extends Activity
         return -1;
     }
 
+    private void mediaScanDir(String dir) {
+        Intent intent = new Intent("android.intent.action.MEDIA_SCANNER_SCAN_DIR");
+        intent.setData(Uri.fromFile(new File(dir)));
+        sendBroadcast(intent);
+    }
+
     private long mLastReportTime = 0;
     private long mCurBytesCopyed = 0;
     private boolean copyFile(String src, String dst) {
@@ -240,10 +259,76 @@ public class MainActivity extends Activity
         return false;
     }
 
-    private boolean installApk(String src) {
-        return false;
+    private PackageManager         mPackageManager  = null;
+    private PackageInstallObserver mInstallObserver = null;
+    private ArrayList<String>      mApkFileList     = new ArrayList<String>();
+    private final Object           mApkInstallEvent = new Object();
+    private boolean                mApkInstallResult= false;
+    private void searchApkFiles(String src) {
+        File fsrc   = new File(src);
+        if (fsrc.exists()) {
+            File[] srcfiles = fsrc.listFiles();
+            if (srcfiles.length != 0) {
+                for (File f : srcfiles) {
+                    if (f.isDirectory()) {
+                        searchApkFiles(f.getAbsolutePath());
+                    } else {
+                        mApkFileList.add(f.getAbsolutePath());
+                    }
+                }
+            }
+        }
     }
 
+    private boolean installApk(String path) {
+        Uri           packageUri    = Uri.fromFile(new File(path));
+        File          packageFile   = new File(path);
+        String        packageName   = "";
+
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
+            PackageParser packageParser = new PackageParser();
+            PackageParser.Package pack  = null;
+            try {
+                pack = packageParser.parsePackage(packageFile, 0);
+            } catch (Exception e) { e.printStackTrace(); }
+            if (pack == null) {
+                sendMessage(CopyTask.MSG_APK_INSTALL_FAILED, 0, 0, null);
+                return false;
+            }
+            packageName = pack.applicationInfo.packageName;
+        } else {
+            PackageInfo archiveinfo = mPackageManager.getPackageArchiveInfo(path, PackageManager.GET_ACTIVITIES);
+            if (archiveinfo == null) {
+                sendMessage(CopyTask.MSG_APK_INSTALL_FAILED, 0, 0, null);
+                return false;
+            }
+            packageName = archiveinfo.applicationInfo.packageName;
+        }
+
+        sendMessage(CopyTask.MSG_APK_INSTALL_RUNNING, 0, 0, packageName);
+        mPackageManager.installPackage(packageUri, mInstallObserver, PackageManager.INSTALL_REPLACE_EXISTING, packageName);
+        synchronized (mApkInstallEvent) {
+            mApkInstallResult = false;
+            try { mApkInstallEvent.wait(); } catch (Exception e) { e.printStackTrace(); }
+        }
+        sendMessage(mApkInstallResult ? CopyTask.MSG_APK_INSTALL_SUCCESSED : CopyTask.MSG_APK_INSTALL_FAILED, 0, 0, packageName);
+        return mApkInstallResult;
+    }
+
+    private boolean installAllApks(String src) {
+        boolean ret = true;
+        mApkFileList.clear();
+        searchApkFiles(src);
+        if (mApkFileList.size() < 0) return true;
+
+        sendMessage(CopyTask.MSG_APK_INSTALL_TOTAL, mApkFileList.size(), 0, null);
+        for (String path : mApkFileList) {
+            ret = installApk(path);
+            if (!ret || mExitCopy) break;
+        }
+        if (ret) sendMessage(CopyTask.MSG_APK_INSTALL_DONE, 0, 0, null);
+        return ret;
+    }
 
     private void sendMessage(int what, int arg1, int arg2, Object obj) {
         Message msg = new Message();
@@ -290,13 +375,14 @@ public class MainActivity extends Activity
                         sendMessage(CopyTask.MSG_DIR_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
                         return false;
                     }
+                    if (ret) mediaScanDir(task.dst);
                 }
                 break;
             case CopyTask.COPY_TASK_UNZIP:
                 ret = unzipFile(task.src, task.dst);
                 break;
             case CopyTask.COPY_TASK_APK:
-                ret = installApk(task.src);
+                ret = installAllApks(task.src);
                 break;
             }
             sendMessage(ret ? CopyTask.MSG_TASK_DONE : CopyTask.MSG_TASK_FAILED, 0, 0, task);
@@ -376,6 +462,37 @@ public class MainActivity extends Activity
                 mTxtStatus.setText(getString(R.string.dir_dst_checksum_failed) + " " + (String)msg.obj);
                 mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
                 break;
+
+            case CopyTask.MSG_APK_INSTALL_TOTAL:
+                mTxtMain.setText(getString(R.string.installapks));
+                mProgressSub.setMax(msg.arg1);
+                mProgressSub.setProgress(0);
+                break;
+            case CopyTask.MSG_APK_INSTALL_RUNNING: {
+                    String text = String.format(getString(R.string.installing), (String)msg.obj);
+                    mTxtSub.setText(text);
+                }
+                break;
+            case CopyTask.MSG_APK_INSTALL_SUCCESSED: {
+                    String text = String.format(getString(R.string.installok), (String)msg.obj);
+                    mTxtSub.setText(text);
+                    mProgressSub.setProgress(mProgressSub.getProgress() + 1);
+                }
+                break;
+            case CopyTask.MSG_APK_INSTALL_FAILED: {
+                    String text = String.format(getString(R.string.installng), (String)msg.obj);
+                    mTxtSub.setText(text);
+                }
+                break;
+            case CopyTask.MSG_APK_INSTALL_DONE:
+                mTxtSub.setText(getString(R.string.installdone));
+                break;
+            case CopyTask.MSG_APK_INSTALL_OBSERVER:
+                synchronized (mApkInstallEvent) {
+                    mApkInstallResult = msg.arg1 == 1 ? true : false;
+                    mApkInstallEvent.notifyAll();
+                }
+                break;
             }
         }
     };
@@ -398,6 +515,13 @@ class CopyTask {
     public static final int MSG_DIR_SRC_CHECKSUM_FAILED  = 13;
     public static final int MSG_DIR_DST_CHECKSUM_FAILED  = 14;
 
+    public static final int MSG_APK_INSTALL_TOTAL    = 20;
+    public static final int MSG_APK_INSTALL_RUNNING  = 21;
+    public static final int MSG_APK_INSTALL_SUCCESSED= 22;
+    public static final int MSG_APK_INSTALL_FAILED   = 23;
+    public static final int MSG_APK_INSTALL_DONE     = 24;
+    public static final int MSG_APK_INSTALL_OBSERVER = 25;
+
     public static final int COPY_TASK_FILE    = 0;
     public static final int COPY_TASK_DIR     = 1;
     public static final int COPY_TASK_UNZIP   = 2;
@@ -409,4 +533,19 @@ class CopyTask {
     public long checksum;
 }
 
+class PackageInstallObserver extends IPackageInstallObserver.Stub {
+    private Handler mHandler = null;
 
+    public PackageInstallObserver(Handler h) {
+        mHandler = h;
+    }
+
+    @Override
+    public void packageInstalled(String packageName, int returnCode) {
+        Message msg = new Message();
+        msg.what = CopyTask.MSG_APK_INSTALL_OBSERVER;
+        msg.arg1 = returnCode;
+        msg.obj  = packageName;
+        mHandler.sendMessage(msg);
+    }
+}

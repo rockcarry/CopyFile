@@ -14,4 +14,9 @@
     <string name="file_dst_checksum_failed">拷贝文件时目的文件大小检验失败！</string>
     <string name="dir_src_checksum_failed">拷贝目录时源目录大小检验失败！</string>
     <string name="dir_dst_checksum_failed">拷贝目录时目的目录大小检验失败！</string>
+    <string name="installapks">正在执行 apk 安装任务...</string>
+    <string name="installing">正在安装 apk: %s</string>
+    <string name="installok">apk %s 安装成功！</string>
+    <string name="installng">apk %s 安装失败！</string>
+    <string name="installdone">apk 安装完成！</string>
 </resources>

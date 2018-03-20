@@ -13,5 +13,9 @@
     <string name="file_src_checksum_failed">copy file src size check failed !</string>
     <string name="file_dst_checksum_failed">copy file dst size check failed !</string>
     <string name="dir_src_checksum_failed">copy dir src size check failed !</string>
-    <string name="dir_dst_checksum_failed">copy dir dst size check failed !</string>
+    <string name="installapks">intalling apks now...</string>
+    <string name="installing">installing packaage: %s</string>
+    <string name="installok">install package %s successed !</string>
+    <string name="installng">install package %s failed !</string>
+    <string name="installdone">install apks done !</string>
 </resources>
