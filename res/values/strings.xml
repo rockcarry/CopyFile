@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CopyFile</string>
-    <string name="copy_start">running...</string>
+    <string name="copy_start">copy file is running...</string>
     <string name="copy_done">successed !</string>
     <string name="copy_failed">warnning !\ncopy failed !</string>
     <string name="copy_file">copy file:</string>

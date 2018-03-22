@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -42,6 +43,7 @@ public class copyFileActivity extends Activity
     private PackageManager mPackageManager;
     private PowerManager.WakeLock mWakeLock;
     private MediaPlayer    mPlayer;
+    private int            mKeyFlags;
 
     /** Called when the activity is first created. */
     @Override
@@ -57,7 +59,7 @@ public class copyFileActivity extends Activity
         mProgressSub  = (ProgressBar)findViewById(R.id.bar_sub );
 
         mPowerManager = (PowerManager)getSystemService(Context.POWER_SERVICE);
-        mWakeLock     = mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
+        mWakeLock     = mPowerManager.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, TAG);
         mWakeLock.setReferenceCounted(false);
 
         mPackageManager  = getPackageManager();
@@ -84,13 +86,12 @@ public class copyFileActivity extends Activity
     public void onDestroy() {
         Log.d(TAG, "onDestroy");
         mPlayer.release();
-        sendBroadcast(new Intent("com.apical.testhwbutton.disable"));
 
         mExitCopy = true;
         synchronized (mApkInstallEvent) {
             mApkInstallEvent.notifyAll();
         }
-        try { mThread.join(); } catch (Exception e) { e.printStackTrace(); }
+        try { if (mThread != null) mThread.join(); } catch (Exception e) { e.printStackTrace(); }
 
         super.onDestroy();
     }
@@ -99,33 +100,52 @@ public class copyFileActivity extends Activity
     public void onResume() {
         Log.d(TAG, "onResume");
         super.onResume();
+        sendBroadcast(new Intent("com.apical.testhwbutton.enable"));
     }
 
     @Override
     public void onPause() {
         Log.d(TAG, "onPause");
         super.onPause();
+        sendBroadcast(new Intent("com.apical.testhwbutton.disable"));
     }
 
     @Override
-    public void onBackPressed() {
-        if (mThread == null) {
-            finish();
-        } else {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle(getString(R.string.notice));
-            builder.setIcon(R.drawable.ic_launcher);
-            builder.setMessage(getString(R.string.wait_copy_done));
-            builder.setPositiveButton(
-                getString(R.string.confirm),
-                new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {}
-                }
-            );
-            builder.create();
-            builder.show();
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+        case KeyEvent.KEYCODE_BACK:
+            mKeyFlags |= (1 << 0);
+            break;
+        case KeyEvent.KEYCODE_HOME:
+            mKeyFlags |= (1 << 1);
+            break;
+        default: return super.onKeyDown(keyCode, event);
         }
+        return true;
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+        case KeyEvent.KEYCODE_BACK:
+            if ((mKeyFlags & (1 << 0)) != 0) {
+                if (mThread == null) {
+                    finish();
+                }
+            }
+            mKeyFlags &= ~(1 << 0);
+            break;
+        case KeyEvent.KEYCODE_HOME:
+            if ((mKeyFlags & (1 << 1)) != 0) {
+                if (mThread == null) {
+                    finish();
+                }
+            }
+            mKeyFlags &= ~(1 << 1);
+            break;
+        default: return super.onKeyUp(keyCode, event);
+        }
+        return true;
     }
 
     private static final String COPYFILE_CONFIG_PATH = "/mnt/extsd/copyfile/config.ini";
@@ -224,22 +244,20 @@ public class copyFileActivity extends Activity
         InputStream  is = null;
         OutputStream os = null;
         boolean     ret = false;
-        byte[] buf = new byte[1024];
+        byte[] buf = new byte[64*1024];
         try {
             is = new FileInputStream (fsrc);
             os = new FileOutputStream(fdst);
             int bytesRead = 0;
-            int bytesCopy = 0;
             while (!mExitCopy && (bytesRead = is.read(buf)) > 0) {
                 os.write(buf, 0, bytesRead);
-                bytesCopy += bytesRead;
-                if (SystemClock.uptimeMillis() - mLastReportTime > 100) {
+                mCurBytesCopyed += bytesRead;
+                if (SystemClock.uptimeMillis() - mLastReportTime > 200) {
                     mLastReportTime = SystemClock.uptimeMillis();
-                    sendMessage(CopyTask.MSG_BYTES_COPY, bytesCopy, 0, dst);
-                    bytesCopy = 0;
+                    sendMessage(CopyTask.MSG_BYTES_COPY, 0, 0, dst);
                 }
             }
-            sendMessage(CopyTask.MSG_BYTES_COPY, bytesCopy, 0, dst);
+            sendMessage(CopyTask.MSG_BYTES_COPY, 0, 0, dst);
             ret = true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -378,6 +396,7 @@ public class copyFileActivity extends Activity
                     } else {
                         sendMessage(CopyTask.MSG_FILE_SIZE, 0, 0, new Long(filesize));
                     }
+                    mCurBytesCopyed = 0;
                     ret = copyFile(task.src, task.dst);
                     if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
                         sendMessage(CopyTask.MSG_FILE_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
@@ -395,6 +414,7 @@ public class copyFileActivity extends Activity
                     } else {
                         sendMessage(CopyTask.MSG_DIR_SIZE, 0, 0, new Long(dirsize));
                     }
+                    mCurBytesCopyed = 0;
                     ret = copyDir(task.src, task.dst);
                     if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
                         sendMessage(CopyTask.MSG_DIR_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
@@ -423,13 +443,12 @@ public class copyFileActivity extends Activity
         public void handleMessage(Message msg) {
             switch (msg.what) {
             case CopyTask.MSG_COPY_START:
-                sendBroadcast(new Intent("com.apical.testhwbutton.enable"));
                 mTxtStatus.setText(getString(R.string.copy_start));
                 break;
             case CopyTask.MSG_COPY_DONE:
                 mTxtStatus.setText(getString(R.string.copy_done));
                 mTxtStatus.setTextColor(Color.rgb(0, 255, 0));
-                sendBroadcast(new Intent("com.apical.testhwbutton.disable"));
+                mTxtStatus.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 64);
                 break;
             case CopyTask.MSG_COPY_FAILED:
                 mTxtStatus.setText(getString(R.string.copy_failed));
@@ -461,7 +480,6 @@ public class copyFileActivity extends Activity
                 mTxtMain.setTextColor(Color.rgb(255, 0, 0));
                 break;
             case CopyTask.MSG_BYTES_COPY:
-                mCurBytesCopyed += msg.arg1;
                 mProgressSub.setProgress((int)(mCurBytesCopyed / 1024));
                 mTxtSub.setText(getString(R.string.current_file) + (String)msg.obj);
                 break;
@@ -470,7 +488,6 @@ public class copyFileActivity extends Activity
                     Long size = (Long)msg.obj;
                     mProgressSub.setMax((int)(size / 1024));
                     mProgressSub.setProgress(0);
-                    mCurBytesCopyed = 0;
                 }
                 break;
             case CopyTask.MSG_FILE_FAILED:
@@ -516,6 +533,10 @@ public class copyFileActivity extends Activity
                 break;
             case CopyTask.MSG_APK_INSTALL_DONE:
                 mTxtSub.setText(getString(R.string.installdone));
+                if (mProgressSub.getMax() == 0) {
+                    mProgressSub.setMax(100);
+                    mProgressSub.setProgress(100);
+                }
                 break;
             case CopyTask.MSG_APK_INSTALL_OBSERVER:
                 synchronized (mApkInstallEvent) {
