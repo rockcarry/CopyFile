@@ -10,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageParser;
 import android.content.pm.IPackageInstallObserver;
 import android.graphics.Color;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,6 +21,7 @@ import android.os.SystemClock;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.util.TypedValue;
 import android.util.Log;
 
 import java.io.*;
@@ -39,6 +41,7 @@ public class copyFileActivity extends Activity
     private PowerManager   mPowerManager;
     private PackageManager mPackageManager;
     private PowerManager.WakeLock mWakeLock;
+    private MediaPlayer    mPlayer;
 
     /** Called when the activity is first created. */
     @Override
@@ -60,6 +63,10 @@ public class copyFileActivity extends Activity
         mPackageManager  = getPackageManager();
         mInstallObserver = new PackageInstallObserver(mHandler);
 
+        // create a player for music playing
+        mPlayer = MediaPlayer.create(this, R.raw.warning);
+        mPlayer.setLooping(true);
+
         mExitCopy = false;
         mThread   = new Thread() {
             @Override
@@ -75,13 +82,16 @@ public class copyFileActivity extends Activity
 
     @Override
     public void onDestroy() {
-        Log.d(TAG, "++onDestroy");
+        Log.d(TAG, "onDestroy");
+        mPlayer.release();
+        sendBroadcast(new Intent("com.apical.testhwbutton.disable"));
+
         mExitCopy = true;
         synchronized (mApkInstallEvent) {
             mApkInstallEvent.notifyAll();
         }
         try { mThread.join(); } catch (Exception e) { e.printStackTrace(); }
-        Log.d(TAG, "--onDestroy");
+
         super.onDestroy();
     }
 
@@ -100,7 +110,7 @@ public class copyFileActivity extends Activity
     @Override
     public void onBackPressed() {
         if (mThread == null) {
-            super.onBackPressed();
+            finish();
         } else {
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle(getString(R.string.notice));
@@ -363,6 +373,7 @@ public class copyFileActivity extends Activity
                     long filesize = getFileSize(task.src);
                     if (task.checksum != 0 && task.checksum != filesize) {
                         sendMessage(CopyTask.MSG_FILE_SRC_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + filesize + ")");
+                        sendMessage(CopyTask.MSG_COPY_FAILED, 0, 0, null);
                         return false;
                     } else {
                         sendMessage(CopyTask.MSG_FILE_SIZE, 0, 0, new Long(filesize));
@@ -370,6 +381,7 @@ public class copyFileActivity extends Activity
                     ret = copyFile(task.src, task.dst);
                     if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
                         sendMessage(CopyTask.MSG_FILE_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
+                        sendMessage(CopyTask.MSG_COPY_FAILED, 0, 0, null);
                         return false;
                     }
                 }
@@ -378,6 +390,7 @@ public class copyFileActivity extends Activity
                     long dirsize = getDirSize(task.src);
                     if (task.checksum != 0 && task.checksum != dirsize) {
                         sendMessage(CopyTask.MSG_DIR_SRC_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + dirsize + ")");
+                        sendMessage(CopyTask.MSG_COPY_FAILED, 0, 0, null);
                         return false;
                     } else {
                         sendMessage(CopyTask.MSG_DIR_SIZE, 0, 0, new Long(dirsize));
@@ -385,6 +398,7 @@ public class copyFileActivity extends Activity
                     ret = copyDir(task.src, task.dst);
                     if (ret && task.checksum != 0 && task.checksum != mCurBytesCopyed) {
                         sendMessage(CopyTask.MSG_DIR_DST_CHECKSUM_FAILED, 0, 0, "(" + task.checksum + " != " + mCurBytesCopyed + ")");
+                        sendMessage(CopyTask.MSG_COPY_FAILED, 0, 0, null);
                         return false;
                     }
                     if (ret) mediaScanDir(task.dst);
@@ -409,15 +423,19 @@ public class copyFileActivity extends Activity
         public void handleMessage(Message msg) {
             switch (msg.what) {
             case CopyTask.MSG_COPY_START:
+                sendBroadcast(new Intent("com.apical.testhwbutton.enable"));
                 mTxtStatus.setText(getString(R.string.copy_start));
                 break;
             case CopyTask.MSG_COPY_DONE:
                 mTxtStatus.setText(getString(R.string.copy_done));
                 mTxtStatus.setTextColor(Color.rgb(0, 255, 0));
+                sendBroadcast(new Intent("com.apical.testhwbutton.disable"));
                 break;
             case CopyTask.MSG_COPY_FAILED:
                 mTxtStatus.setText(getString(R.string.copy_failed));
                 mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                mTxtStatus.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 64);
+                mPlayer.start();
                 break;
             case CopyTask.MSG_TASK_TOTAL:
                 mProgressMain.setMax(msg.arg1);
@@ -459,20 +477,20 @@ public class copyFileActivity extends Activity
                 mTxtSub.setTextColor(Color.rgb(255, 0, 0));
                 break;
             case CopyTask.MSG_FILE_SRC_CHECKSUM_FAILED:
-                mTxtStatus.setText(getString(R.string.file_src_checksum_failed) + " " + (String)msg.obj);
-                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                mTxtMain.setText(getString(R.string.file_src_checksum_failed) + " " + (String)msg.obj);
+                mTxtMain.setTextColor(Color.rgb(255, 0, 0));
                 break;
             case CopyTask.MSG_FILE_DST_CHECKSUM_FAILED:
-                mTxtStatus.setText(getString(R.string.file_dst_checksum_failed) + " " + (String)msg.obj);
-                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                mTxtMain.setText(getString(R.string.file_dst_checksum_failed) + " " + (String)msg.obj);
+                mTxtMain.setTextColor(Color.rgb(255, 0, 0));
                 break;
             case CopyTask.MSG_DIR_SRC_CHECKSUM_FAILED:
-                mTxtStatus.setText(getString(R.string.dir_src_checksum_failed) + " " + (String)msg.obj);
-                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                mTxtMain.setText(getString(R.string.dir_src_checksum_failed) + " " + (String)msg.obj);
+                mTxtMain.setTextColor(Color.rgb(255, 0, 0));
                 break;
             case CopyTask.MSG_DIR_DST_CHECKSUM_FAILED:
-                mTxtStatus.setText(getString(R.string.dir_dst_checksum_failed) + " " + (String)msg.obj);
-                mTxtStatus.setTextColor(Color.rgb(255, 0, 0));
+                mTxtMain.setText(getString(R.string.dir_dst_checksum_failed) + " " + (String)msg.obj);
+                mTxtMain.setTextColor(Color.rgb(255, 0, 0));
                 break;
 
             case CopyTask.MSG_APK_INSTALL_TOTAL:

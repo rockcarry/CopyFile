@@ -3,7 +3,7 @@
     <string name="app_name">CopyFile</string>
     <string name="copy_start">running...</string>
     <string name="copy_done">successed !</string>
-    <string name="copy_failed">failed !</string>
+    <string name="copy_failed">warnning !\ncopy failed !</string>
     <string name="copy_file">copy file:</string>
     <string name="copy_dir">copy dir:</string>
     <string name="current_file">file:</string>
@@ -13,6 +13,7 @@
     <string name="file_src_checksum_failed">copy file src size check failed !</string>
     <string name="file_dst_checksum_failed">copy file dst size check failed !</string>
     <string name="dir_src_checksum_failed">copy dir src size check failed !</string>
+    <string name="dir_dst_checksum_failed">copy dir dst size check failed !</string>
     <string name="installapks">intalling apks now...</string>
     <string name="installing">installing packaage: %s</string>
     <string name="installok">install package %s successed !</string>

@@ -3,7 +3,7 @@
     <string name="app_name">拷贝工具</string>
     <string name="copy_start">正在执行拷贝...</string>
     <string name="copy_done">拷贝成功！</string>
-    <string name="copy_failed">拷贝失败！</string>
+    <string name="copy_failed">警告！\n拷贝失败！</string>
     <string name="copy_file">拷贝文件：</string>
     <string name="copy_dir">拷贝目录：</string>
     <string name="current_file">当前文件：</string>
@@ -13,7 +13,7 @@
     <string name="file_src_checksum_failed">拷贝文件时源文件大小检验失败！</string>
     <string name="file_dst_checksum_failed">拷贝文件时目的文件大小检验失败！</string>
     <string name="dir_src_checksum_failed">拷贝目录时源目录大小检验失败！</string>
-    <string name="dir_dst_checksum_failed">拷贝目录时目的目录大小检验失败！</string>
+    <string name="dir_dst_checksum_failed">拷贝目录时目标目录大小检验失败！</string>
     <string name="installapks">正在执行 apk 安装任务...</string>
     <string name="installing">正在安装 apk: %s</string>
     <string name="installok">apk %s 安装成功！</string>
